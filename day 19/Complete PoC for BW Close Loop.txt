@@ -1,0 +1,1175 @@
+@EndUserText.label : 'Flight'
+@AbapCatalog.enhancementCategory : #EXTENSIBLE_CHARACTER_NUMERIC
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.dataMaintenance : #ALLOWED
+define table zbalmysflight {
+  @AbapCatalog.foreignKey.keyType : #KEY
+  @AbapCatalog.foreignKey.screenCheck : true
+  key mandt    : s_mandt not null
+    with foreign key t000
+      where mandt = zbalmysflight.mandt;
+  key username : username not null;
+  key carrid   : s_carr_id not null;
+  key connid   : s_conn_id not null;
+  key fldate   : s_date not null;
+  @Semantics.amount.currencyCode : 'zbalmysflight.currency'
+  price        : s_price not null;
+  currency     : s_currcode not null;
+  planetype    : s_planetye not null;
+  seatsmax     : s_seatsmax not null;
+  seatsocc     : s_seatsocc not null;
+  @Semantics.amount.currencyCode : 'zbalmysflight.currency'
+  paymentsum   : s_sum not null;
+
+}
+
+@AbapCatalog.sqlViewName: 'ZIAIRLINE'
+@EndUserText.label: 'Airline'
+@Analytics.dataCategory: #DIMENSION
+define view zI_Airline as select from scarr
+{
+  @ObjectModel.text.element: [ 'AirlineName' ] 
+  key carrid as Airline,
+  @Semantics.text
+  carrname as AirlineName,
+  @Semantics.currencyCode
+  currcode   as AirlineLocalCurrency,
+  @Semantics.url: { mimeType: '' }  
+  url        as AirlineUrl
+} 
+
+
+@AbapCatalog.sqlViewName: 'ZIAIRPORT'
+@EndUserText.label: 'Airport'
+@Analytics.dataCategory: #DIMENSION
+define view zI_Airport as select from sairport
+{
+  @ObjectModel.text.element: [ 'AirportName' ] 
+  key id as Airport,
+  @Semantics.text
+  name   as AirportName
+} 
+
+
+@AbapCatalog.sqlViewName: 'ZIAIRCRAFTTYPE'
+@EndUserText.label: 'Aircraft Type'
+@Analytics.dataCategory: #DIMENSION
+define view zI_AircraftType as select from saplane
+{
+  key planetype as AircraftType,
+  producer      as AircraftManufacturer
+} 
+
+
+@AbapCatalog.sqlViewName: 'ZPMYFLIGHT0'
+@EndUserText.label: 'Flight'
+define view zP_myFlight0 as select from sflight
+{
+  key carrid as Airline,                  
+  key connid as FlightConnection,           
+  key fldate as FlightDate,
+  key cast ( '' as username ) as Username,                     
+  price      as FlightPrice,
+  currency   as Currency,
+  planetype  as AircraftType,       
+  seatsmax   as TotalNumberOfSeats,
+  seatsocc   as NumberOfOccupiedSeats,
+  paymentsum as CurrentBookingsTotalAmount
+} union all select from zbalmysflight {  
+  carrid     as Airline,                  
+  connid     as FlightConnection,           
+  fldate     as FlightDate,
+  username   as UserName,                     
+  price      as FlightPrice,
+  currency   as Currency,
+  planetype  as AircraftType,       
+  seatsmax   as TotalNumberOfSeats,
+  seatsocc   as NumberOfOccupiedSeats,
+  paymentsum as CurrentBookingsTotalAmount
+} 
+
+
+@AbapCatalog.sqlViewName: 'ZPMYFLIGHT'
+@EndUserText.label: 'Flight'
+define view zP_myFlight as select from zP_myFlight0
+{
+  key Airline,                  
+  key FlightConnection,           
+  key FlightDate,
+  min( FlightPrice ) as FlightPrice,
+  Currency,
+  AircraftType,       
+  max( TotalNumberOfSeats )         as TotalNumberOfSeats,
+  sum( NumberOfOccupiedSeats )      as NumberOfOccupiedSeats,
+  sum( CurrentBookingsTotalAmount ) as CurrentBookingsTotalAmount
+} 
+group by Airline, FlightConnection, FlightDate, Currency, AircraftType 
+
+
+@AbapCatalog.sqlViewName: 'ZIFLIGHTCONN'
+@EndUserText.label: 'Flight Connection'
+@ObjectModel.representativeKey: 'FlightConnection'
+@Analytics.dataCategory: #DIMENSION
+define view zI_FlightConnection as select from spfli
+association[0..1] to zI_Airline as _Airline     on $projection.Airline     = _Airline.Airline
+association[0..1] to zI_Airport as _AirportFrom on $projection.AirportFrom = _AirportFrom.Airport
+association[0..1] to zI_Airport as _AirportTo   on $projection.AirportTo   = _AirportTo.Airport
+{
+  @ObjectModel.foreignKey.association: '_Airline'
+  key carrid as Airline,
+  key connid as FlightConnection,
+  countryfr  as CountryFrom,
+  cityfrom   as CityFrom,
+  @ObjectModel.foreignKey.association: '_AirportFrom'
+  airpfrom   as AirportFrom,
+  countryto  as CountryTo,
+  cityto     as CityTo,
+  @ObjectModel.foreignKey.association: '_AirportTo'
+  airpto     as AirportTo,
+  fltime     as FlightDurationInMinutes,
+  deptime    as DepartureTime,
+  arrtime    as ArrivalTime,
+  period     as ArrivalDateShiftInDays,
+  @Semantics.quantity.unitOfMeasure: 'DistanceUnit'
+  @DefaultAggregation: #SUM 
+  distance   as Distance,
+  @Semantics.unitOfMeasure
+  distid     as DistanceUnit,
+  _Airline,
+  _AirportFrom,  
+  _AirportTo  
+} 
+
+
+
+@AbapCatalog.sqlViewName: 'ZIFLIGHT'
+@EndUserText.label: 'Flight'
+//@ObjectModel.createEnabled: true  @ObjectModel.updateEnabled:true  @ObjectModel.deleteEnabled: true  // transactional
+@Analytics.dataExtraction.enabled: true    
+@VDM.viewType:#COMPOSITE
+@Analytics.dataCategory: #CUBE                                                                       // analytical
+
+define view zI_Flight as select from zP_myFlight // zP_Flight
+association[0..1] to zI_Airline          as _Airline          on $projection.Airline          = _Airline.Airline
+association[0..1] to zI_FlightConnection as _FlightConnection on $projection.Airline          = _FlightConnection.Airline and
+                                                                 $projection.FlightConnection = _FlightConnection.FlightConnection
+association[0..1] to zI_AircraftType     as _AircraftType     on $projection.AircraftType     = _AircraftType.AircraftType
+{
+  @ObjectModel.foreignKey.association: '_Airline'
+  key Airline,
+  @ObjectModel.foreignKey.association: '_FlightConnection'
+  key FlightConnection,
+  key FlightDate,
+  @Semantics.amount.currencyCode: 'Currency'  
+  @DefaultAggregation: #MIN 
+  FlightPrice,
+  @Semantics.currencyCode                      
+  Currency,
+  @ObjectModel.foreignKey.association: '_AircraftType'
+  AircraftType,
+  @DefaultAggregation: #SUM                               
+  TotalNumberOfSeats,
+  @DefaultAggregation: #SUM
+  NumberOfOccupiedSeats,
+  @Semantics.amount.currencyCode: 'Currency'
+  @DefaultAggregation: #SUM  
+  CurrentBookingsTotalAmount,
+  _Airline,  
+  _FlightConnection,
+  _AircraftType
+} 
+
+
+@AbapCatalog.sqlViewName: 'ZIFLIGHT'
+@EndUserText.label: 'Flight'
+//@ObjectModel.createEnabled: true  @ObjectModel.updateEnabled:true  @ObjectModel.deleteEnabled: true  // transactional
+@Analytics.dataExtraction.enabled: true    
+@VDM.viewType:#COMPOSITE
+@Analytics.dataCategory: #CUBE                                                                       // analytical
+
+define view zI_Flight as select from zP_myFlight // zP_Flight
+association[0..1] to zI_Airline          as _Airline          on $projection.Airline          = _Airline.Airline
+association[0..1] to zI_FlightConnection as _FlightConnection on $projection.Airline          = _FlightConnection.Airline and
+                                                                 $projection.FlightConnection = _FlightConnection.FlightConnection
+association[0..1] to zI_AircraftType     as _AircraftType     on $projection.AircraftType     = _AircraftType.AircraftType
+{
+  @ObjectModel.foreignKey.association: '_Airline'
+  key Airline,
+  @ObjectModel.foreignKey.association: '_FlightConnection'
+  key FlightConnection,
+  key FlightDate,
+  @Semantics.amount.currencyCode: 'Currency'  
+  @DefaultAggregation: #MIN 
+  FlightPrice,
+  @Semantics.currencyCode                      
+  Currency,
+  @ObjectModel.foreignKey.association: '_AircraftType'
+  AircraftType,
+  @DefaultAggregation: #SUM                               
+  TotalNumberOfSeats,
+  @DefaultAggregation: #SUM
+  NumberOfOccupiedSeats,
+  @Semantics.amount.currencyCode: 'Currency'
+  @DefaultAggregation: #SUM  
+  CurrentBookingsTotalAmount,
+  _Airline,  
+  _FlightConnection,
+  _AircraftType
+} 
+
+
+@AbapCatalog.sqlViewName: 'ZCFLIGHT'
+@EndUserText.label: 'Flight'
+//@OData.v2.autoAggregation: false
+@Analytics.query: true
+@OData.publish: true
+define view zC_Flight as select from zI_Flight
+{
+  key Airline,
+  key FlightConnection,
+  key FlightDate,
+  FlightPrice,
+  Currency,
+  AircraftType,
+  TotalNumberOfSeats,
+  NumberOfOccupiedSeats,
+  CurrentBookingsTotalAmount,
+  _Airline,  
+  _FlightConnection,
+  _AircraftType
+} 
+
+
+
+--------------ODATA V4
+
+class ZCL_BOOK_ZC_FLIGHT_V4_MODEL definition
+  public
+  inheriting from /IWBEP/CL_V4_ABS_MODEL_PROV
+  final
+  create public .
+
+public section.
+
+  types:
+    begin of gty_cds_views,
+      flight            type zC_Flight,
+      flightconnection  type zi_FlightConnection,
+    end of gty_cds_views .
+
+  constants:
+    begin of gcs_cds_view_names,
+      flight            type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'ZC_FLIGHT',
+      flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'ZC_FLIGHTCONNECTION',
+    end of gcs_cds_view_names .
+  constants:
+    begin of gcs_entity_type_names,
+      begin of internal,
+        flight            type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'ZC_FLIGHT',
+        flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'ZC_FLIGHTCONNECTION',
+      end of internal,
+      begin of edm,
+        flight            type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'FlightType',
+        flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'FlightConnectionType',
+      end of edm,
+    end of gcs_entity_type_names .
+  constants:
+    begin of gcs_entity_set_names,
+      begin of internal,
+        flight            type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'ZC_FLIGHT',
+        flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'ZC_FLIGHTCONNECTION',
+      end of internal,
+      begin of edm,
+        flight            type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'Flight',
+        flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'FlightConnection',
+      end of edm,
+    end of gcs_entity_set_names .
+  constants:
+    begin of gcs_nav_prop_names,
+      begin of internal,
+        connection_to_flights type /iwbep/if_v4_med_element=>ty_e_med_internal_name value '_FLIGHT',
+      end of internal,
+      begin of edm,
+        connection_to_flights type /iwbep/if_v4_med_element=>ty_e_med_edm_name value '_Flight',
+      end of edm,
+    end of gcs_nav_prop_names .
+  constants:
+    begin of gcs_action_names,
+      begin of internal,
+        book_flight     type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'BOOK',
+        cancelmyflights type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'CANCELMYFLIGHTS',
+      end of internal,
+      begin of edm,
+        book_flight     type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'Book',
+        cancelmyflights type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'CancelMyFlights',
+      end of edm,
+    end of gcs_action_names .
+  constants:
+    begin of gcs_action_parameter_names,
+      begin of internal,
+        book_flight_id            type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'FLIGHT',
+        book_flight_seats         type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'NUMBEROFSEATS',
+        cancelmyflights_datefrom  type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'DATEFROM',
+        cancelmyflights_dateto    type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'DATETO',
+      end of internal,
+      begin of edm,
+        book_flight_id            type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'Flight',
+        book_flight_seats         type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'NumberOfSeats',
+        cancelmyflights_datefrom  type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'DateFrom',
+        cancelmyflights_dateto    type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'DateTo',
+      end of edm,
+    end of gcs_action_parameter_names .
+
+  methods /IWBEP/IF_V4_MP_BASIC~DEFINE
+    redefinition .
+protected section.
+private section.
+
+  methods DEFINE_FLIGHT
+    importing
+      !IO_MODEL type ref to /IWBEP/IF_V4_MED_MODEL .
+  methods DEFINE_FLIGHTCONNECTION
+    importing
+      !IO_MODEL type ref to /IWBEP/IF_V4_MED_MODEL .
+  methods DEFINE_FLIGHT_BOOK
+    importing
+      !IO_MODEL type ref to /IWBEP/IF_V4_MED_MODEL .
+  methods DEFINE_CANCELMYFLIGHTS
+    importing
+      !IO_MODEL type ref to /IWBEP/IF_V4_MED_MODEL .
+  methods DEFINE_MESSAGE
+    importing
+      !IO_MODEL type ref to /IWBEP/IF_V4_MED_MODEL .
+ENDCLASS.
+
+
+
+CLASS ZCL_BOOK_ZC_FLIGHT_V4_MODEL IMPLEMENTATION.
+
+
+method /IWBEP/IF_V4_MP_BASIC~DEFINE.
+
+*  define_message( io_model ).
+  define_flightconnection( io_model ).
+  define_flight( io_model ).
+  define_flight_book( io_model ).
+  define_cancelmyflights( io_model ).
+
+endmethod.
+
+
+method define_cancelmyflights.
+
+  data:
+    lo_action               type ref to /iwbep/if_v4_med_action,
+    lo_action_import        type ref to /iwbep/if_v4_med_action_imp,
+    lo_parameter            type ref to /iwbep/if_v4_med_act_param,
+    lo_return               type ref to /iwbep/if_v4_med_act_return.
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  "   Create action CancelMyFlights
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_action = io_model->create_action( gcs_action_names-internal-cancelmyflights ).
+  lo_action->set_edm_name( gcs_action_names-edm-cancelmyflights ).
+
+  lo_action_import = lo_action->create_action_import( gcs_action_names-internal-cancelmyflights ).
+  lo_action_import->set_edm_name( gcs_action_names-edm-cancelmyflights ).
+  lo_action_import->set_entity_set_name( gcs_entity_set_names-internal-flight ).
+
+  io_model->create_primitive_type( iv_primitive_type_name = 'DATE' )->set_edm_type( /iwbep/if_v4_med_element=>gcs_edm_data_types-date ).
+  lo_parameter = lo_action->create_parameter( gcs_action_parameter_names-internal-cancelmyflights_datefrom ).
+  lo_parameter->set_edm_name( gcs_action_parameter_names-edm-cancelmyflights_datefrom ).
+  lo_parameter->set_primitive_type( 'DATE' ).
+  lo_parameter = lo_action->create_parameter( gcs_action_parameter_names-internal-cancelmyflights_dateto ).
+  lo_parameter->set_edm_name( gcs_action_parameter_names-edm-cancelmyflights_dateto ).
+  lo_parameter->set_primitive_type( 'DATE' ).
+
+  lo_return = lo_action->create_return( ).
+  lo_return->set_entity_type( gcs_entity_type_names-internal-flight ).
+  lo_return->set_is_collection( ).
+
+endmethod.
+
+
+method define_flight.
+
+  data:
+    lv_referenced_cds_view  type gty_cds_views-flight,           " As internal ABAP name we use the name of the CDS view
+    lt_primitive_properties type /iwbep/if_v4_med_element=>ty_t_med_prim_property,
+    lo_entity_set           type ref to /iwbep/if_v4_med_entity_set,
+    lo_entity_type          type ref to /iwbep/if_v4_med_entity_type.
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  " Create entity type
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_entity_type = io_model->create_entity_type_by_struct( exporting
+    iv_entity_type_name          = gcs_entity_type_names-internal-flight
+    is_structure                 = lv_referenced_cds_view
+    iv_add_conv_to_prim_props    = abap_false "abap_true
+    iv_add_f4_help_to_prim_props = abap_false "abap_true
+    iv_gen_prim_props            = abap_true ).
+
+  lo_entity_type->set_edm_name( gcs_entity_type_names-edm-flight ).
+
+  lo_entity_type->get_primitive_properties( importing et_property = lt_primitive_properties ).
+
+  loop at lt_primitive_properties into data(lo_primitive_property).
+    lo_primitive_property->set_edm_name( to_mixed( val = lo_primitive_property->get_internal_name( ) ) ).
+  endloop.
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  " Set key field(s)
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_primitive_property = lo_entity_type->get_primitive_property( 'AIRLINE' ).
+  lo_primitive_property->set_is_key( ).
+
+  lo_primitive_property = lo_entity_type->get_primitive_property( 'FLIGHTCONNECTION' ).
+  lo_primitive_property->set_is_key( ).
+
+  lo_primitive_property = lo_entity_type->get_primitive_property( 'FLIGHTDATE' ).
+  lo_primitive_property->set_is_key( ).
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  "   Create entity set
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_entity_set = lo_entity_type->create_entity_set( gcs_entity_set_names-internal-flight ).
+  lo_entity_set->set_edm_name( gcs_entity_set_names-edm-flight ).
+
+endmethod.
+
+
+  method DEFINE_FLIGHTCONNECTION.
+
+  data:
+    lv_referenced_cds_view  type gty_cds_views-flightconnection,           " As internal ABAP name we use the name of the CDS view
+    lt_primitive_properties type /iwbep/if_v4_med_element=>ty_t_med_prim_property,
+    lo_nav_prop             type ref to /iwbep/if_v4_med_nav_prop,
+    lo_entity_set           type ref to /iwbep/if_v4_med_entity_set,
+    lo_entity_type          type ref to /iwbep/if_v4_med_entity_type.
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  " Create entity type
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_entity_type = io_model->create_entity_type_by_struct( exporting
+    iv_entity_type_name          = gcs_entity_type_names-internal-flightconnection
+    is_structure                 = lv_referenced_cds_view
+    iv_add_conv_to_prim_props    = abap_false "abap_true
+    iv_add_f4_help_to_prim_props = abap_false "abap_true
+    iv_gen_prim_props            = abap_true ).
+
+  lo_entity_type->set_edm_name( gcs_entity_type_names-edm-flightconnection ).
+
+  lo_entity_type->get_primitive_properties( importing et_property = lt_primitive_properties ).
+
+  loop at lt_primitive_properties into data(lo_primitive_property).
+    lo_primitive_property->set_edm_name( to_mixed( val = lo_primitive_property->get_internal_name( ) ) ).
+  endloop.
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  " Set key field(s)
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_primitive_property = lo_entity_type->get_primitive_property( 'AIRLINE' ).
+  lo_primitive_property->set_is_key( ).
+
+  lo_primitive_property = lo_entity_type->get_primitive_property( 'FLIGHTCONNECTION' ).
+  lo_primitive_property->set_is_key( ).
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  "   Create navigation property
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_nav_prop = lo_entity_type->create_navigation_property( gcs_nav_prop_names-internal-connection_to_flights ).
+  lo_nav_prop->set_edm_name( gcs_nav_prop_names-edm-connection_to_flights ).
+
+  lo_nav_prop->set_target_entity_type_name( gcs_entity_type_names-internal-flight ).
+  lo_nav_prop->set_target_multiplicity( /iwbep/if_v4_med_element=>gcs_med_nav_multiplicity-to_many_optional ).
+  lo_nav_prop->set_on_delete_action( /iwbep/if_v4_med_element=>gcs_med_on_delete_action-none ).
+
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  "   Create entity set
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_entity_set = lo_entity_type->create_entity_set( gcs_entity_set_names-internal-flightconnection ).
+  lo_entity_set->set_edm_name( gcs_entity_set_names-edm-flightconnection ).
+
+endmethod.
+
+
+method DEFINE_FLIGHT_BOOK.
+
+  data:
+    lo_action               type ref to /iwbep/if_v4_med_action,
+    lo_parameter            type ref to /iwbep/if_v4_med_act_param.
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  "   Create action book flight
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_action = io_model->create_action( gcs_action_names-internal-book_flight ).
+  lo_action->set_edm_name( gcs_action_names-edm-book_flight ).
+
+  lo_parameter = lo_action->create_parameter( gcs_action_parameter_names-internal-book_flight_id ).
+  lo_parameter->set_edm_name( gcs_action_parameter_names-edm-book_flight_id ).
+  lo_parameter->set_entity_type( gcs_entity_type_names-internal-flight ).
+  lo_parameter->set_is_binding_parameter( ).
+
+  io_model->create_primitive_type( iv_primitive_type_name = 'INT' )->set_edm_type( /iwbep/if_v4_med_element=>gcs_edm_data_types-byte ).
+  lo_parameter = lo_action->create_parameter( gcs_action_parameter_names-internal-book_flight_seats ).
+  lo_parameter->set_edm_name( gcs_action_parameter_names-edm-book_flight_seats ).
+  lo_parameter->set_primitive_type( 'INT' ).
+
+endmethod.
+
+
+method DEFINE_MESSAGE.
+
+  data:
+    lo_prim_prop   type ref to /IWBEP/IF_V4_MED_PRIM_PROP,
+    lo_t_message type ref to /IWBEP/IF_V4_MED_CPLX_TYPE.
+
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  "   Create message type for error response
+  """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+  lo_t_message = io_model->create_complex_type( 'MESSAGE_TYPE' ).
+  lo_t_message->set_edm_name( 'MessageType' ).
+
+  lo_prim_prop = lo_t_message->create_prim_property( 'CODE' ).
+  lo_prim_prop->set_edm_name( 'code' ).
+  lo_prim_prop->set_edm_type( /iwbep/if_v4_med_element=>gcs_edm_data_types-string ).
+
+  lo_prim_prop = lo_t_message->create_prim_property( 'MESSAGE' ).
+  lo_prim_prop->set_edm_name( 'message' ).
+  lo_prim_prop->set_edm_type( /iwbep/if_v4_med_element=>gcs_edm_data_types-string ).
+
+  lo_prim_prop = lo_t_message->create_prim_property( 'TARGET' ).
+  lo_prim_prop->set_edm_name( 'target' ).
+  lo_prim_prop->set_edm_type( /iwbep/if_v4_med_element=>gcs_edm_data_types-string ).
+  lo_prim_prop->set_is_nullable( ).
+
+  lo_prim_prop = lo_t_message->create_prim_property( 'TRANSITION' ).
+  lo_prim_prop->set_edm_name( 'transition' ).
+  lo_prim_prop->set_edm_type( /iwbep/if_v4_med_element=>gcs_edm_data_types-boolean ).
+
+  lo_prim_prop = lo_t_message->create_prim_property( 'NUMERIC_SEVERITY' ).
+  lo_prim_prop->set_edm_name( 'numericSeverity' ).
+  lo_prim_prop->set_edm_type( /iwbep/if_v4_med_element=>gcs_edm_data_types-byte ).
+
+endmethod.
+ENDCLASS.
+
+
+
+
+class ZCL_BOOK_ZC_FLIGHT_V4_DATA definition
+  public
+  inheriting from /IWBEP/CL_V4_ABS_DATA_PROVIDER
+  final
+  create public .
+
+public section.
+
+  types:
+    begin of gty_cds_views,
+      flight            type zC_Flight,
+      flightconnection  type zI_FlightConnection,
+    end of gty_cds_views .
+
+  constants:
+    begin of gcs_cds_view_names,
+      flight            type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'ZC_FLIGHT',
+      flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'zI_FlightConnection',
+    end of gcs_cds_view_names .
+  constants:
+    begin of gcs_entity_type_names,
+      begin of internal,
+        flight            type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'ZC_FLIGHT',
+        flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'zI_FlightConnection',
+      end of internal,
+      begin of edm,
+        flight            type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'FlightType',
+        flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'FlightConnectionType',
+      end of edm,
+    end of gcs_entity_type_names .
+  constants:
+    begin of gcs_entity_set_names,
+      begin of internal,
+        flight            type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'ZC_FLIGHT',
+        flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'zI_FlightConnection',
+      end of internal,
+      begin of edm,
+        flight            type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'Flight',
+        flightconnection  type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'FlightConnection',
+      end of edm,
+    end of gcs_entity_set_names .
+  constants:
+    begin of gcs_nav_prop_names,
+      begin of internal,
+        connection_to_flights type /iwbep/if_v4_med_element=>ty_e_med_internal_name value '_FLIGHT',
+      end of internal,
+      begin of edm,
+        connection_to_flights type /iwbep/if_v4_med_element=>ty_e_med_edm_name value '_Flight',
+      end of edm,
+    end of gcs_nav_prop_names .
+  constants:
+    begin of gcs_action_names,
+      begin of internal,
+        book_flight     type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'BOOK',
+        cancelmyflights type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'CANCELMYFLIGHTS',
+      end of internal,
+      begin of edm,
+        book_flight     type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'Book',
+        cancelmyflights type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'CancelMyFlights',
+      end of edm,
+    end of gcs_action_names .
+  constants:
+    begin of gcs_action_parameter_names,
+      begin of internal,
+        book_flight_id            type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'FLIGHT',
+        book_flight_seats         type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'NUMBEROFSEATS',
+        cancelmyflights_datefrom  type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'DATEFROM',
+        cancelmyflights_dateto    type /iwbep/if_v4_med_element=>ty_e_med_internal_name value 'DATETO',
+      end of internal,
+      begin of edm,
+        book_flight_id            type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'Flight',
+        book_flight_seats         type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'NumberOfSeats',
+        cancelmyflights_datefrom  type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'DateFrom',
+        cancelmyflights_dateto    type /iwbep/if_v4_med_element=>ty_e_med_edm_name value 'DateTo',
+      end of edm,
+    end of gcs_action_parameter_names .
+
+  methods /IWBEP/IF_V4_DP_BASIC~READ_ENTITY_LIST
+    redefinition .
+  methods /IWBEP/IF_V4_DP_ADVANCED~EXECUTE_ACTION
+    redefinition .
+protected section.
+private section.
+
+  methods READ_LIST_FLIGHTCONNECTION
+    importing
+      !IO_REQUEST type ref to /IWBEP/IF_V4_REQU_BASIC_LIST
+      !IO_RESPONSE type ref to /IWBEP/IF_V4_RESP_BASIC_LIST
+      !IV_ORDERBY_STRING type STRING
+      !IV_WHERE_CLAUSE type STRING
+      !IV_SELECT_STRING type STRING
+      !IV_SKIP type I
+      !IV_TOP type I
+      !IS_DONE_LIST type /IWBEP/IF_V4_REQU_BASIC_LIST=>TY_S_TODO_PROCESS_LIST .
+  methods READ_LIST_FLIGHT
+    importing
+      !IO_REQUEST type ref to /IWBEP/IF_V4_REQU_BASIC_LIST
+      !IO_RESPONSE type ref to /IWBEP/IF_V4_RESP_BASIC_LIST
+      !IV_ORDERBY_STRING type STRING
+      !IV_WHERE_CLAUSE type STRING
+      !IV_SELECT_STRING type STRING
+      !IV_SKIP type I
+      !IV_TOP type I
+      !IS_DONE_LIST type /IWBEP/IF_V4_REQU_BASIC_LIST=>TY_S_TODO_PROCESS_LIST .
+ENDCLASS.
+
+
+
+CLASS ZCL_BOOK_ZC_FLIGHT_V4_DATA IMPLEMENTATION.
+
+
+ method /iwbep/if_v4_dp_advanced~execute_action.
+
+   data:
+     lv_type_kind          type /iwbep/if_v4_med_element=>ty_e_med_element_kind,
+     lv_action_name        type /iwbep/if_v4_med_element=>ty_e_med_internal_name,
+     lv_action_import_name type /iwbep/if_v4_med_element=>ty_e_med_internal_name,
+     begin of ls_key_data,
+       airline             type zc_flight-airline,
+       flightconnection    type zc_flight-flightconnection,
+       flightdate          type zc_flight-flightdate,
+     end of ls_key_data,
+     begin of ls_parameter_data_book,
+       numberofseats       type i,
+     end of ls_parameter_data_book,
+     begin of ls_parameter_data_cancel,
+       datefrom            type dats,
+       dateto              type dats,
+     end of ls_parameter_data_cancel,
+     ls_flight             type zc_flight,
+     lt_flight             type standard table of zc_flight,
+     ls_mysflight          type zbalmysflight,
+     lt_mysflight          type standard table of zbalmysflight,
+     ls_todo               type /iwbep/if_v4_requ_adv_action=>ty_s_todo_list,
+     ls_done               type /iwbep/if_v4_requ_adv_action=>ty_s_todo_process_list,
+     ls_textid             like if_t100_message=>t100key,
+     ls_message            type /iwbep/if_v4_runtime_types=>ty_s_message,
+     lt_message            type /iwbep/if_v4_runtime_types=>ty_t_message,
+     lo_navigation_node    type ref to /iwbep/if_v4_navigation_node.
+
+* todo list
+  io_request->get_todos( importing es_todo_list = ls_todo ).
+
+  if ls_todo-process-navigation = abap_true.
+
+*   entity
+    lo_navigation_node = io_request->get_navigation_path( ).
+    lo_navigation_node->get_key_data( importing es_key_data = ls_key_data ).
+
+*   action
+    lo_navigation_node = lo_navigation_node->get_next_navigation_node( ).
+*    lo_navigation_node->get_type_kind( importing ev_type_kind = lv_type_kind ).
+    ls_done-navigation = abap_true.
+
+    lo_navigation_node->get_action_name( importing ev_action_name = lv_action_name ).
+    if lv_action_name <> gcs_action_names-internal-book_flight.
+      return.
+    endif.
+
+    lo_navigation_node->get_parameter_data( importing es_parameter_data = ls_parameter_data_book ).
+    ls_done-parameter_data = abap_true.
+
+    select single * from zc_flight into corresponding fields of @ls_flight where
+      airline          = @ls_key_data-airline and
+      flightconnection = @ls_key_data-flightconnection and
+      flightdate       = @ls_key_data-flightdate.
+    if sy-subrc is initial.
+      add ls_parameter_data_book-numberofseats to ls_flight-numberofoccupiedseats.
+      if ls_flight-numberofoccupiedseats <= ls_flight-totalnumberofseats.
+        clear ls_mysflight.
+        select single * from zbalmysflight into corresponding fields of ls_mysflight where
+          username = sy-uname and
+          carrid   = ls_key_data-airline and
+          connid   = ls_key_data-flightconnection and
+          fldate   = ls_key_data-flightdate.
+        if not sy-subrc is initial.
+          ls_mysflight-username = sy-uname.
+          ls_mysflight-carrid     = ls_flight-airline.
+          ls_mysflight-connid     = ls_flight-flightconnection.
+          ls_mysflight-fldate     = ls_flight-flightdate.
+          ls_mysflight-price      = ls_flight-flightprice.
+          ls_mysflight-currency   = ls_flight-currency.
+          ls_mysflight-planetype  = ls_flight-aircrafttype.
+          ls_mysflight-seatsmax   = ls_flight-totalnumberofseats.
+        endif.
+        ls_mysflight-seatsocc   = ls_mysflight-seatsocc   + ls_parameter_data_book-numberofseats.
+        ls_mysflight-paymentsum = ls_mysflight-paymentsum + ls_parameter_data_book-numberofseats * ls_flight-flightprice.
+        modify zbalmysflight from ls_mysflight.
+        if sy-subrc is initial.
+*         success
+          clear ls_message.
+          ls_message-class = '00'.
+          ls_message-number = '001'.
+          ls_message-variable_1 = 'Booking successful. '.
+          ls_message-variable_2 = ls_parameter_data_book-numberofseats.
+          shift ls_message-variable_2 left deleting leading space.
+          concatenate '  Number of Seats:' ls_message-variable_2 into ls_message-variable_2 separated by space..
+          ls_message-variable_3 = ls_parameter_data_book-numberofseats * ls_flight-flightprice.
+          shift ls_message-variable_3 left deleting leading space.
+          concatenate '  Total Amount:' ls_message-variable_3 ls_mysflight-currency  into ls_message-variable_3 separated by space.
+*          ls_message-target =
+          ls_message-severity = 1.
+          insert ls_message into table lt_message.
+        endif.
+      else.
+*       error
+        clear ls_textid.
+        ls_textid-msgid = '00'.
+        ls_textid-msgno = '001'.
+        ls_textid-attr1 = 'Booking failed.'.
+        ls_textid-attr2 = 'Not enough seats available.'.
+        raise exception type /iwbep/cx_gateway exporting textid = ls_textid.
+*        clear ls_message.
+*        ls_message-class = '00'.
+*        ls_message-number = '001'.
+*        ls_message-variable_1 = 'Booking failed.'.
+*        ls_message-variable_2 = 'Not enough seats available.'.
+*  *      ls_message-target =
+*        ls_message-severity = 4.
+*        insert ls_message into table lt_message.
+      endif.
+    else.
+*     error
+      clear ls_textid.
+      ls_textid-msgid = '00'.
+      ls_textid-msgno = '001'.
+      ls_textid-attr1 = 'Booking failed.'.
+      ls_textid-attr2 = 'Flight not available.'.
+      raise exception type /iwbep/cx_gateway exporting textid = ls_textid.
+    endif.
+
+  elseif ls_todo-process-action_import = abap_true.
+
+    io_request->get_action_import( importing ev_action_import_name = lv_action_import_name ).
+    io_request->get_action( importing ev_action_name = lv_action_name ).
+    if lv_action_name <> gcs_action_names-internal-cancelmyflights.
+      return.
+    endif.
+    io_request->get_parameter_data( importing es_parameter_data = ls_parameter_data_cancel ).
+    ls_done-parameter_data = abap_true.
+
+    select * from zbalmysflight into corresponding fields of ls_mysflight where
+      username =  sy-uname                          and
+      fldate   >= ls_parameter_data_cancel-datefrom and
+      fldate   <= ls_parameter_data_cancel-dateto.
+*      clear ls_message.
+*      ls_message-class = '00'.
+*      ls_message-number = '001'.
+*      concatenate 'Flight:' ls_mysflight-carrid ls_mysflight-connid into ls_message-variable_1 separated by space.
+*      concatenate '  Date:' ls_mysflight-fldate into ls_message-variable_2 separated by space.
+*      ls_message-variable_3 = ls_mysflight-seatsocc.
+*      shift ls_message-variable_3 left deleting leading space.
+*      concatenate '  Seats:' ls_message-variable_3 into ls_message-variable_3 separated by space.
+*      ls_message-variable_4 = ls_mysflight-paymentsum.
+*      shift ls_message-variable_4 left deleting leading space.
+*      concatenate '  Amount:' ls_message-variable_4 ls_mysflight-currency into ls_message-variable_4 separated by space.
+**      ls_message-target =
+*      ls_message-severity = 1.
+*      insert ls_message into table lt_message.
+      clear ls_flight.
+      ls_flight-airline                    = ls_mysflight-carrid.
+      ls_flight-flightconnection           = ls_mysflight-connid.
+      ls_flight-flightdate                 = ls_mysflight-fldate.
+      ls_flight-flightprice                = ls_mysflight-price.
+      ls_flight-currency                   = ls_mysflight-currency.
+      ls_flight-aircrafttype               = ls_mysflight-planetype.
+      ls_flight-totalnumberofseats         = ls_mysflight-seatsmax.
+      ls_flight-numberofoccupiedseats      = ls_mysflight-seatsocc.
+      ls_flight-currentbookingstotalamount = ls_mysflight-paymentsum.
+      insert ls_flight into table lt_flight.
+    endselect.
+    if sy-subrc is initial.
+      io_response->set_busi_data( lt_flight ).
+      delete from zbalmysflight where
+        username =  sy-uname                          and
+        fldate   >= ls_parameter_data_cancel-datefrom and
+        fldate   <= ls_parameter_data_cancel-dateto.
+    endif.
+
+    ls_done-action_import = abap_true.
+
+  endif.
+
+  io_response->set_is_done( ls_done ).
+  if lt_message is not initial.
+    io_response->set_header_messages( lt_message ).
+  endif.
+
+endmethod.
+
+
+method /IWBEP/IF_V4_DP_BASIC~READ_ENTITY_LIST.
+
+  data lv_entityset_name type /iwbep/if_v4_med_element=>ty_e_med_internal_name.
+
+  data: ls_todo_list         type /iwbep/if_v4_requ_basic_list=>ty_s_todo_list,
+        ls_done_list         type /iwbep/if_v4_requ_basic_list=>ty_s_todo_process_list,
+        lv_where_clause      type string,
+        lv_select_string     type string,
+        lv_orderby_string    type string,
+        lt_selected_property type /iwbep/if_v4_runtime_types=>ty_t_property_path,
+        lv_skip              type i value 0,
+        lv_top               type i value 0,
+        lt_orderby_property  type abap_sortorder_tab.
+
+
+  io_request->get_todos( importing es_todo_list = ls_todo_list ).
+
+
+  " $orderby was called
+  if ls_todo_list-process-orderby = abap_true.
+    ls_done_list-orderby = abap_true.
+    "** only supported as of 751 or 752
+    "get Open SQL Order by Clause
+    "io_request->get_osql_orderby_clause( IMPORTING ev_osql_orderby_clause = lv_orderby_string ).
+*      CATCH /iwbep/cx_gateway.    "
+
+    io_request->get_orderby( importing et_orderby_property = lt_orderby_property ).
+    clear lv_orderby_string.
+    loop at lt_orderby_property into data(ls_orderby_property).
+      if ls_orderby_property-descending = abap_true.
+        concatenate lv_orderby_string ls_orderby_property-name 'DESCENDING' into lv_orderby_string separated by space.
+      else.
+        concatenate lv_orderby_string ls_orderby_property-name 'ASCENDING' into lv_orderby_string separated by space.
+      endif.
+    endloop.
+
+  else.
+    " lv_orderby_string must not be empty.
+    lv_orderby_string = 'PRIMARY KEY'.
+  endif.
+
+
+  " $skip / $top handling
+  if ls_todo_list-process-skip = abap_true.
+    ls_done_list-skip = abap_true.
+    io_request->get_skip( importing ev_skip = lv_skip ).
+  endif.
+  if ls_todo_list-process-top = abap_true.
+    ls_done_list-top = abap_true.
+    io_request->get_top( importing ev_top = lv_top ).
+  endif.
+
+
+  " $select handling
+  if ls_todo_list-process-select = abap_true.
+    ls_done_list-select = abap_true.
+    io_request->get_selected_properties(  importing et_selected_property = lt_selected_property ).
+    concatenate lines of lt_selected_property into lv_select_string  separated by ','.
+  else.
+    "check coding. If no columns are specified via $select retrieve all columns from the model instead?
+    lv_select_string = '*'.
+    "or better to throw an exception instead?
+  endif.
+
+
+  " specific sales orders based on $filter?
+  if ls_todo_list-process-filter = abap_true.
+    ls_done_list-filter = abap_true.
+    io_request->get_filter_osql_where_clause( importing ev_osql_where_clause = lv_where_clause ).
+  endif.
+
+
+  io_request->get_entity_set( importing ev_entity_set_name = lv_entityset_name ).
+
+  case lv_entityset_name.
+
+    when gcs_entity_set_names-internal-flightconnection.
+
+      read_list_flightconnection(
+        exporting
+          io_request        = io_request
+          io_response       = io_response
+          iv_orderby_string = lv_orderby_string
+          iv_select_string  = lv_select_string
+          iv_where_clause   = lv_where_clause
+          iv_skip           = lv_skip
+          iv_top            = lv_top
+          is_done_list      = ls_done_list ).
+
+    when gcs_entity_set_names-internal-flight.
+
+      read_list_flight(
+        exporting
+          io_request        = io_request
+          io_response       = io_response
+          iv_orderby_string = lv_orderby_string
+          iv_select_string  = lv_select_string
+          iv_where_clause   = lv_where_clause
+          iv_skip           = lv_skip
+          iv_top            = lv_top
+          is_done_list      = ls_done_list ).
+
+    when others.
+
+      super->/iwbep/if_v4_dp_basic~read_entity_list( io_request  = io_request
+                                                     io_response = io_response ).
+  endcase.
+
+endmethod.
+
+
+method READ_LIST_FLIGHT.
+
+     "entity type specific data types
+  data :
+    lt_flight           type standard table of gty_cds_views-flight,
+    lt_key_flight       type standard table of gty_cds_views-flight.
+
+  "generic data types
+  data: ls_todo_list type /iwbep/if_v4_requ_basic_list=>ty_s_todo_list,
+        ls_done_list type /iwbep/if_v4_requ_basic_list=>ty_s_todo_process_list,
+        lv_count     type i,
+        lv_max_index type i.
+
+  " Get the request options the application should/must handle
+  io_request->get_todos( importing es_todo_list = ls_todo_list ).
+
+  " Get the request options the application has already handled
+  ls_done_list = is_done_list.
+
+  " specific sales orders based on navigation?
+  if ls_todo_list-process-key_data = abap_true.
+    io_request->get_key_data( importing et_key_data = lt_key_flight ).
+*    loop at lt_key_salesorderitem into data(ls_key_entity).
+*      append value #( sign = 'I' option = 'EQ' low = ls_key_entity-salesorder ) to lt_key_range_salesorder.
+*      append value #( sign = 'I' option = 'EQ' low = ls_key_entity-salesorderitem ) to lt_key_range_salesorderitem.
+*    endloop.
+*
+*    "the first key field (salesoder) is always the same
+*    delete adjacent duplicates from lt_key_range_salesorder.
+    ls_done_list-key_data = abap_true.
+  endif.
+
+
+*  "================================================================
+*  " read_list must either be called with a filter or via navigation
+*  " or $top has to be used to avoid a full table scan
+*  if  ls_todo_list-process-filter = abap_false
+*  and ls_todo_list-process-key_data = abap_false
+*  and iv_top = 0.
+*    raise exception type zcx_e2e001_odata_v4_so
+*      exporting
+*        textid              = zcx_e2e001_odata_v4_so=>use_filter_top_or_nav
+*        http_status_code    = zcx_e2e001_odata_v4_so=>gcs_http_status_codes-bad_request
+*        edm_entity_set_name = gcs_entity_set_names-edm-salesorder.
+*  endif.
+
+  " Return business data if requested
+  if ls_todo_list-return-busi_data = abap_true.
+
+    " read data from the CDS view
+
+*    "OFFSET is only supported as of NW751
+*    SELECT (iv_select_string) FROM ze2e001_c_salesorder
+*    WHERE (iv_where_clause)
+*    AND   salesorder IN @lt_salesorder_key_range
+*    ORDER BY (iv_orderby_string)
+*    INTO CORRESPONDING FIELDS OF TABLE @lt_entity
+*    UP TO @iv_top ROWS
+*    OFFSET @iv_skip.
+
+    "value for max_index must only be calculated if the request also contains a $top
+    if iv_top is not initial.
+      lv_max_index = iv_top + iv_skip.
+    else.
+      lv_max_index = 0.
+    endif.
+
+    select (iv_select_string) from zc_flight
+    where (iv_where_clause)
+*    and   salesorder in @lt_key_range_salesorder
+*    and   salesorderitem in @lt_key_range_salesorderitem
+    order by (iv_orderby_string)
+    into corresponding fields of table @lt_flight
+    up to @lv_max_index rows.
+
+    "skipping entries specified by $skip
+    "not needed as of NW751 where OFFSET is supported in Open SQL
+    if iv_skip is not initial.
+      delete lt_flight to iv_skip.
+    endif.
+
+    io_response->set_busi_data( it_busi_data = lt_flight ).
+
+  else.
+    "if business data is requested count will be calculated by
+    "the framework
+    if ls_todo_list-return-count = abap_true.
+
+      select count( * ) from zc_flight
+          where (iv_where_clause)
+*          and   salesorder in @lt_key_range_salesorder
+*          and   salesorderitem in @lt_key_range_salesorderitem
+          into @lv_count.
+
+      io_response->set_count( lv_count ).
+    endif.
+  endif.
+
+  " Report list of request options handled by application
+  io_response->set_is_done( ls_done_list ).
+
+endmethod.
+
+
+method READ_LIST_FLIGHTCONNECTION.
+
+     "entity type specific data types
+  data :
+    lt_flightconnection           type standard table of gty_cds_views-flightconnection,
+    lt_key_flightconnection       type standard table of gty_cds_views-flightconnection.
+
+  "generic data types
+  data: ls_todo_list type /iwbep/if_v4_requ_basic_list=>ty_s_todo_list,
+        ls_done_list type /iwbep/if_v4_requ_basic_list=>ty_s_todo_process_list,
+        lv_count     type i,
+        lv_max_index type i.
+
+  " Get the request options the application should/must handle
+  io_request->get_todos( importing es_todo_list = ls_todo_list ).
+
+  " Get the request options the application has already handled
+  ls_done_list = is_done_list.
+
+  " specific sales orders based on navigation?
+  if ls_todo_list-process-key_data = abap_true.
+    io_request->get_key_data( importing et_key_data = lt_key_flightconnection ).
+*    loop at lt_key_salesorderitem into data(ls_key_entity).
+*      append value #( sign = 'I' option = 'EQ' low = ls_key_entity-salesorder ) to lt_key_range_salesorder.
+*      append value #( sign = 'I' option = 'EQ' low = ls_key_entity-salesorderitem ) to lt_key_range_salesorderitem.
+*    endloop.
+*
+*    "the first key field (salesoder) is always the same
+*    delete adjacent duplicates from lt_key_range_salesorder.
+    ls_done_list-key_data = abap_true.
+  endif.
+
+
+*  "================================================================
+*  " read_list must either be called with a filter or via navigation
+*  " or $top has to be used to avoid a full table scan
+*  if  ls_todo_list-process-filter = abap_false
+*  and ls_todo_list-process-key_data = abap_false
+*  and iv_top = 0.
+*    raise exception type zcx_e2e001_odata_v4_so
+*      exporting
+*        textid              = zcx_e2e001_odata_v4_so=>use_filter_top_or_nav
+*        http_status_code    = zcx_e2e001_odata_v4_so=>gcs_http_status_codes-bad_request
+*        edm_entity_set_name = gcs_entity_set_names-edm-salesorder.
+*  endif.
+
+  " Return business data if requested
+  if ls_todo_list-return-busi_data = abap_true.
+
+    " read data from the CDS view
+
+*    "OFFSET is only supported as of NW751
+*    SELECT (iv_select_string) FROM ze2e001_c_salesorder
+*    WHERE (iv_where_clause)
+*    AND   salesorder IN @lt_salesorder_key_range
+*    ORDER BY (iv_orderby_string)
+*    INTO CORRESPONDING FIELDS OF TABLE @lt_entity
+*    UP TO @iv_top ROWS
+*    OFFSET @iv_skip.
+
+    "value for max_index must only be calculated if the request also contains a $top
+    if iv_top is not initial.
+      lv_max_index = iv_top + iv_skip.
+    else.
+      lv_max_index = 0.
+    endif.
+
+    select (iv_select_string) from zI_FlightConnection
+    where (iv_where_clause)
+*    and   salesorder in @lt_key_range_salesorder
+*    and   salesorderitem in @lt_key_range_salesorderitem
+    order by (iv_orderby_string)
+    into corresponding fields of table @lt_flightconnection
+    up to @lv_max_index rows.
+
+    "skipping entries specified by $skip
+    "not needed as of NW751 where OFFSET is supported in Open SQL
+    if iv_skip is not initial.
+      delete lt_flightconnection to iv_skip.
+    endif.
+
+    io_response->set_busi_data( it_busi_data = lt_flightconnection ).
+
+  else.
+    "if business data is requested count will be calculated by
+    "the framework
+    if ls_todo_list-return-count = abap_true.
+
+      select count( * ) from zI_FlightConnection
+          where (iv_where_clause)
+*          and   salesorder in @lt_key_range_salesorder
+*          and   salesorderitem in @lt_key_range_salesorderitem
+          into @lv_count.
+
+      io_response->set_count( lv_count ).
+    endif.
+  endif.
+
+  " Report list of request options handled by application
+  io_response->set_is_done( ls_done_list ).
+
+endmethod.
+ENDCLASS.
+
+
+
+
+
